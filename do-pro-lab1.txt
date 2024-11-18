@@ -1,0 +1,172 @@
+##########################
+##### Lab 1 - DO-PRO #####
+##########################
+
+##### Instruksi Environment Lab #####
+0. Saat ada X maka ubah ke nomor absen anda
+1. Buat 2 instance dengan nama podX-node0 & podX-node1
+2. Spesifikasi masing-masing Instance 2 vCPU dan 4 GB vRAM dan images CentOS-7-x86_64-GenericCloud-1802.qcow2
+3. IP Address podX-node0 = 10.X.X.10/24, podX-node1 = 10.X.X.20/24
+
+#A> Full screenshot bagian Network Topology > Topology > Normal. Beri nama X-do-pro-A.png
+
+
+#################################
+##### Install Node Exporter #####
+#################################
+
+### Eksekusi di node podX-node0 podX-node1 ###
+
+##1. Download Paket Node Exporter
+cd /opt
+wget https://github.com/prometheus/node_exporter/releases/download/v0.16.0/node_exporter-0.16.0.linux-amd64.tar.gz
+tar xvfz node_exporter-0.16.0.linux-amd64.tar.gz
+
+##2. Start Node Exporter
+cd node_exporter-0.16.0.linux-amd64
+./node_exporter --help
+./node_exporter --version
+./node_exporter
+
+##3. Gunakan browser dan akses metrics:
+#- http://floating-ip-podX-node0:9100/metrics
+#- http://floating-ip-podX-node1:9100/metrics
+
+#B> Full screenshot kedua metrics tersebut. Beri nama X-do-pro-B.png
+
+##4. Running Node Exporter as a Service
+vi /etc/systemd/system/node_exporter.service
+
+[Unit]
+Description=Node Exporter
+
+[Service]
+User=root
+ExecStart=/opt/node_exporter-0.16.0.linux-amd64/node_exporter
+
+[Install]
+WantedBy=default.target
+
+
+systemctl daemon-reload
+systemctl enable node_exporter.service
+systemctl start node_exporter.service
+systemctl status node_exporter.service
+journalctl -u node_exporter
+
+
+#####################################
+##### Install Prometheus Server #####
+#####################################
+
+### Eksekusi di node podX-node0
+
+##1. Download Paket Prometheus Server
+cd /opt
+wget https://github.com/prometheus/prometheus/releases/download/v2.3.1/prometheus-2.3.1.linux-amd64.tar.gz
+tar xvfz prometheus-2.3.1.linux-amd64.tar.gz
+
+##2. Konfigurasi Prometheus Server
+cd prometheus-2.3.1.linux-amd64
+vi config.yml
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus-[username]'
+    static_configs:
+    - targets: ['10.X.X.10:9090']
+  - job_name: 'node-[username]'
+    static_configs:
+    - targets: ['10.X.X.10:9100','10.X.X.20:9100']
+
+##3. Start Prometheus Server
+./promtool check config config.yml
+./prometheus --help
+./prometheus --version
+./prometheus --config.file=/opt/prometheus-2.3.1.linux-amd64/config.yml
+
+##4. Gunakan browser dan akses url berikut:
+#- Metrics: http://floating-ip-podX-node0:9090/metrics
+#- Graph: http://floating-ip-podX-node0:9090/
+#- Target: http://floating-ip-podX-node0:9090/targets
+
+#C> Full screenshot tampilan Metrics. Beri nama X-do-pro-C.png
+#D> Full screenshot tampilan Target. Beri nama X-do-pro-D.png
+
+##5. Running Prometheus Server as a Service
+vi /etc/systemd/system/prometheus_server.service
+
+[Unit]
+Description=Prometheus Server
+
+[Service]
+User=root
+ExecStart=/opt/prometheus-2.3.1.linux-amd64/prometheus --config.file=/opt/prometheus-2.3.1.linux-amd64/config.yml --web.external-url=http://floating-ip-podX-node0:9090/
+
+[Install]
+WantedBy=default.target
+
+
+systemctl daemon-reload
+systemctl enable prometheus_server.service
+systemctl start prometheus_server.service
+systemctl status prometheus_server.service
+journalctl -u prometheus_server
+
+
+################
+##### Quiz #####
+################
+
+1. Install Docker CE di podX-node1 (https://docs.docker.com/install/linux/docker-ce/centos/).
+2. Expose metric Docker (https://docs.docker.com/config/thirdparty/prometheus/ - Configure Docker).
+3. Tambahkan Docker ke Prometheus Server sebagai target dengan job_name: 'docker-[username]'.
+
+#E> Full screenshot metric Docker dan beri nama X-do-pro-E.png
+#F> Full screenshot http://floating-ip-podX-node0:9090/targets. Beri nama X-do-pro-F.png
+
+
+#########################
+##### Latihan Query #####
+#########################
+
+##1. SSH ke podX-node1 dan buat container dengan ketentuan sebagai berikut:
+#- 3 container dalam keadaan running.
+#- 2 container dalam keadaan stopped.
+#- 1 container dalam keadaan pause.
+
+##2. Gunakan browser dan akses graph: http://floating-ip-podX-node0:9090/
+#- Pada form expression ketikkan: engine_daemon_container_states_containers
+#- Klik button Execute
+#- Pada tab console kolom element dan value pastikan jumlah container (running, stopped, & paused) sesuai dengan ##1.
+#- Jika sudah sesuai: #G> Full screenshot hasil query dan beri nama X-do-pro-G.png
+#- Eksekusi satu per satu metrics yang ada dalam kolom element.
+
+##3. Mendapatkan status (up/down) dari target.
+#- Pada form expression ketikkan: up
+#- Klik button Execute
+#- Perhatikan pada tab console kolom element dan value. Value 1 berarti target dalam kondisi up.
+#- Eksekusi satu per satu metrics yang ada dalam kolom element.
+
+##4. Mendapatkan uptime podX-node0.
+#- Pada form expression ketikkan: (time() - process_start_time_seconds{instance="10.X.X.10:9100",job="node-[username]"})
+#- Klik button Execute
+#- Perhatikan pada tab console kolom element dan value. Value berisi uptime target dalam detik.
+#- Dapatkan uptime podX-node1.
+
+##5. Mendapatkan persentase rata-rata penggunaan CPU di podX-node1 dalam 5 menit terakhir.
+#- Pada form expression ketikkan: 100 - avg (irate(node_cpu_seconds_total{instance="10.X.X.20:9100",job="node-[username]",mode="idle"}[5m])) by (instance) * 100
+#- Klik button Execute
+#- Klik tab Graph. Centang stacked.
+#H> Full screenshot dan beri nama X-do-pro-H.png
+
+##6. Mendapatkan persentase penggunaan memory di podX-node0 dan podX-node1.
+#- Pada form expression ketikkan: (node_memory_MemTotal_bytes - (node_memory_MemFree_bytes + node_memory_Cached_bytes + node_memory_Buffers_bytes)) / node_memory_MemTotal_bytes * 100
+#- Klik button Execute
+#- Klik tab Graph. Centang stacked.
+#I> Full screenshot dan beri nama X-do-pro-I.png
+
+##7. Masih banyak query metrics yang bisa dieksekusi. Silahkan di-explore secara mandiri.

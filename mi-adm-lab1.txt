@@ -1,0 +1,197 @@
+##########################
+##### Lab 1 - MI-ADM #####
+##########################
+
+##### Instruksi Environment Lab #####
+0. Saat ada X maka ubah ke nomor absen anda
+1. Buat tiga instance manageiq-X, k8s-master, dan k8s-worker
+2. Instance manageiq-X dibuat dengan images manageiq-openstack-gaprindashvili-3
+3. 2 Instance k8s dibuat dengan images ubuntu-16.04-server-cloudimg-amd64-disk1-20180306.img
+
+#A> Screenshot bagian Network Topology > Topology > Normal. Beri nama X-mi-adm-A.png
+
+############### ManageIQ ###############
+
+#1. Installing ManageIQ
+#Create Instance
+
+Project > Compute > Instances
+Click Launch Instance
+Instance Name: manageiq-X
+Source: Select Boot Source: Image
+Create New Volume: No
+Image Name: manageiq-openstack-gaprindashvili-3
+Flavor: ns.4-12-75
+Selected networks: (net internal)
+Security Group: default
+Key Pair: (key-pair)
+Launch Instance
+
+
+#2. Configuring ManageIQ
+#SSH ke instance
+Username: root
+Password: smartvm
+
+ssh -l root xxx.xxx.xxx.xxx (ip floating manageiq)
+
+appliance_console > Enter
+
+
+#3. Login Web UI ke alamat manageiq
+
+#B> Screenshot jika sudah sukses login ke Web UI. Beri nama X-mi-adm-B.png
+
+############### Menambahkan Cloud Provider OpenStack ke ManageIQ ###############
+
+Compute > Cloud > Providers
+Configurations > + Add a New Cloud Provider
+
+#1. Isi Form
+Name: 
+Type: OpenStack
+API Version: Keystone v3
+Region:
+Keystone V3 Domain ID: default
+Zone: default
+Tenant Mapping Enabled: no
+
+Security Protocol: Non-SSL
+Hostname (or IPv4 or IPv6 address): labX.nolsatu.id
+API Port: 5000
+Username: (username)
+Password: (password)
+
+#2. Validasi
+Klik tombol Validate
+Pastikan mendapat pesan: "Credential validation was successful"
+
+#3. Klik tombol Add
+
+#C> Screenshot bagian topology jika sudah sukses menambahkan cloud providers. Beri nama X-mi-adm-C.png
+
+############### Kubernetes ###############
+
+#1 Verifikasi alamat ip (eth0) masing-masing node
+ip address
+
+
+#2 Edit name resolution ubah yyy (ip internal)
+sudo vim /etc/hosts
+.....
+127.0.0.1	(hostname)
+yyy.yyy.yyy.yyy k8s-master 
+yyy.yyy.yyy.yyy k8s-worker
+
+ping k8s-master
+ping k8s-worker
+
+
+#3 Upgrade paket
+sudo apt update; sudo apt upgrade -y; sudo apt autoremove -y
+
+
+#4 Instal paket docker.io
+sudo apt install -y docker.io; sudo docker version
+
+#5 Instal kubectl, kubelet & kubeadm
+sudo apt install -y apt-transport-https; curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+cat <<EOF > kubernetes.list
+deb http://apt.kubernetes.io/ kubernetes-xenial main
+EOF
+sudo mv kubernetes.list /etc/apt/sources.list.d/kubernetes.list
+sudo apt update; sudo apt install -y kubectl kubelet kubeadm
+
+
+#6 Di k8s-master, inisialisasi master (verifikasi dan matikan swap lebih dulu)
+swapon -s
+sudo swapoff -a
+sudo kubeadm init --pod-network-cidr=10.244.0.0/16
+
+
+#7 Di k8s-master, copy konfigurasi admin kubernetes
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+
+#8 Di k8s-master, instal pod network flannel
+kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+kubectl get pods --all-namespaces --watch
+
+#Tunggu sampai status pod kube-dns menjadi running (~5 menit)
+#D> Screenshot jika status sudah ready semua. Beri nama X-mi-adm-D.png
+
+#9 Di k8s-master, verifikasi config dan cluster
+kubectl config view
+kubectl cluster-info
+
+
+#10 Di k8s-master, tampilkan token dan token-ca-cert-hash
+sudo kubeadm token list
+sudo openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | openssl rsa -pubin -outform der 2>/dev/null | openssl dgst -sha256 -hex | sed 's/^.* //'
+
+
+#11 Di k8s-worker, join ke master (verifikasi dan matikan swap lebih dulu)
+swapon -s
+sudo swapoff -a
+sudo kubeadm join --token [TOKEN] k8s-master:6443 --discovery-token-ca-cert-hash sha256:[TOKEN-CA-CERT-HASH]
+
+
+#12 Di k8s-master, verifikasi nodes
+kubectl get nodes --watch
+
+#Tunggu sampai status worker menjadi Ready (~5 menit)
+#E> Screenshot jika status worker sudah ready semua. Beri nama X-mi-adm-E.png
+
+#13 Di k8s-master, test deploy aplikasi
+kubectl run hello-minikube --image=k8s.gcr.io/echoserver:1.4 --port=8080
+kubectl expose deployment hello-minikube --type=NodePort
+kubectl get pod
+kubectl describe pods/hello-minikube-xxxxx
+
+#Tunggu sampai status pods menjadi running (~5)
+
+curl 10.244.xxx.xxx:8080
+
+#14. Prepare cluster untuk ManageIQ
+kubectl create ns management-infra
+kubectl create sa -n management-infra management-admin
+kubectl create sa -n management-infra inspector-admin
+kubectl create clusterrolebinding management-infra-cluster-reader --clusterrole=cluster-admin --user=system:serviceaccount:management-infra:management-admin --group=system:serviceaccounts
+
+#15. Get token
+TOKEN=$(kubectl describe secret -n management-infra $(kubectl get secrets -n management-infra | grep management-admin | cut -f1 -d ' ') | grep -E '^token' | cut -f2 -d':' | tr -d '\t')
+echo $TOKEN
+
+
+############### Menambahkan Container Provider Kubernetes ke ManageIQ ###############
+
+Compute > Containers > Providers
+Configurations > + Add a New Containers Provider
+
+#1. Isi Form
+Name:
+Type: Kubernetes
+Zone: Default
+Alerts: Disabled
+Metrics: Disabled
+
+#Endpoints
+Security Protocol: SSL without validation
+Hostname (or IPv4 or IPv6 address): (ip k8s-master)
+API Port: 6443
+
+#2. Validasi
+Klik tombol Validate
+Pastikan mendapat pesan: "Credential validation was successful"
+
+#3. Klik tombol Add
+
+#F> Screenshot bagian topology jika sudah sukses menambahkan cloud providers. Beri nama X-mi-adm-F.png
+
+### Quiz ###
+
+1. Buat instance cirros di OpenStack melalui dashboard Manage IQ
+
+#G> Screenshot dan buktikan bahwa instance cirros terbuat dari manageiq. Beri nama X-mi-adm-G.png 

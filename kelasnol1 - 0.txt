@@ -1,0 +1,38 @@
+network
+createnetwork
+netwrok name : net-99
+subnet : subnet-99
+network address : 10.99.99.0/24
+gateway : 10.99.99.1
+
+allocation pools
+10.99.99.5,10.99.99.200
+dns name : 213.133.98.98,213.33.99.99
+create
+.status active
+
+#router
+router-99
+external network = extnet
+create
+interface = kasih external subnet
+
+#instances 
+launch
+nama : instance-99
+source : image . cirros
+flavor : kasih sesuai instance
+network : 99
+securty groups
+keypair
+launch
+
+actions : associate floating ip
++ allocate ip
+
+ssh gateway
+ping ip floatnya 
+ssh cirros image
+ping ke 8.8.8.8
+ping google.com
+

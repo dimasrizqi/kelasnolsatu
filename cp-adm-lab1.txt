@@ -1,0 +1,216 @@
+##########################
+##### Lab 1 - CP-ADM #####
+##########################
+
+##### Instruksi Environment Lab #####
+0. Saat ada X maka ubah ke nomor absen anda
+1. Buat 3 Instance podX-node1, podX-node2, dan podX-node3 
+2. Spesifikasi masing-masing Instance 2 vCPU dan 4 GB vRAM dan images CentOS-7-x86_64-GenericCloud
+3. Buat 4 Volume sebesar 2 GB dengan nama vol0-node2, vol1-node2, vol2-node3, dan vol3-node3 lalu attach sesuai nama node
+
+#A> Screenshot bagian Network Topology > Topology > Normal. Beri nama X-cp-adm-A.png
+
+########## Eksekusi di Semua Node ##########
+
+##### Pastikan IP, Gateway, dan Hostname Sesuai #####
+
+### Node podX-node1 ###
+Interface: eth0
+IP Address: 10.X.X.30/24
+Gateway: 10.X.X.1
+Hostname: podX-node1
+
+### Node podX-node2 ###
+Interface: eth0
+IP Address: 10.X.X.31/24
+Gateway: 10.X.X.1
+Hostname: podX-node2
+
+### Node podX-node3 ###
+Interface: eth0
+IP Address: 10.X.X.32/24
+Gateway: 10.X.X.1
+Hostname: podX-node3
+
+
+-----Verifikasi Konektifitas-----
+ping -c 3 10.X.X.1
+ping -c 3 10.X.X.30
+ping -c 3 10.X.X.31
+ping -c 3 10.X.X.32
+ping -c 3 yahoo.com
+
+
+##### Name Resolution #####
+vi /etc/hosts
+....
+10.X.X.30 podX-node1
+10.X.X.31 podX-node2
+10.X.X.32 podX-node3
+
+	
+##### Repositori #####
+[ ! -d /etc/yum.repos.d.orig ] && cp -vR /etc/yum.repos.d /etc/yum.repos.d.orig
+yum -y install epel-release yum-plugin-priorities https://download.ceph.com/rpm-luminous/el7/noarch/ceph-release-1-1.el7.noarch.rpm
+yum repolist
+yum -y update
+
+
+##### NTP #####
+yum -y install chrony
+systemctl enable chronyd.service
+systemctl restart chronyd.service
+systemctl status chronyd.service
+chronyc sources
+
+
+##### Networking #####
+systemctl enable network.service
+systemctl restart network.service
+systemctl status network.service
+
+
+##### Paket Utilities #####
+yum -y install vim wget screen crudini
+
+
+##### sudo without TTY #####
+cat << EOF >/etc/sudoers.d/[username]
+[username] ALL = (root) NOPASSWD:ALL
+Defaults:[username] !requiretty
+EOF
+
+##### ceph-deploy User #####
+useradd -d /home/[username] -m [username]
+passwd [username]
+
+chmod 0440 /etc/sudoers.d/[username]
+
+
+##### SELinux #####
+setenforce 0
+getenforce
+sed -i 's/SELINUX\=enforcing/SELINUX\=permissive/g' /etc/selinux/config
+cat /etc/selinux/config
+
+
+#############################################
+######## Eksekusi di Node podX-node1 ########
+#############################################
+
+##### Preflight #####
+#0. Pasang paket ceph-deploy versi 1.5.39-0
+yum -y install http://mirror.centos.org/centos/7/os/x86_64/Packages/python-setuptools-0.9.8-7.el7.noarch.rpm
+yum -y install http://download.ceph.com/rpm-luminous/el7/noarch/
+
+#B> Buktikan versi ceph-deploy yang dipasang sudah sesuai. Beri nama X-cp-adm-B.png
+
+#1. Generate SSH key
+su - [username]
+ssh-keygen
+ls -la ~/.ssh/
+
+## Salin key ke semua node lainnya
+
+#2. Edit file konfigurasi ssh user ceph-deploy
+vi ~/.ssh/config
+
+Host node1
+   Hostname podX-node1
+   User [username]
+Host node2
+   Hostname podX-node2
+   User [username]
+Host node3
+   Hostname podX-node3
+   User [username]
+
+
+chmod 644 ~/.ssh/config
+exit
+
+
+##### Storage Cluster #####
+#1. Login sebagai [username]
+su - [username]
+
+#2. Buat folder konfigurasi
+mkdir deploy-ceph
+cd deploy-ceph
+
+#3. Buat cluster
+ceph-deploy new podX-node1
+ls -lh
+
+#4. Set jumlah replika 2
+echo "osd pool default size = 2" >> ceph.conf
+echo "rbd default features = 1" >> ceph.conf
+
+
+#5. Instal ceph
+ceph-deploy install node1 --stable luminous
+ceph-deploy install node2 node3 --stable luminous
+
+#6. Membuat initial monitor
+ceph-deploy mon create-initial
+ls -lh
+
+#7. Menambahkan OSD
+ceph-deploy disk list node2
+ceph-deploy disk list node3
+
+ceph-deploy disk zap node2:vdx node2:vdx
+ceph-deploy disk zap node3:vdx node3:vdx
+
+ceph-deploy osd create node2:vdx node2:vdx node3:vdx node3:vdx
+
+#8. Deploy manager daemon
+ceph-deploy mgr create node1
+
+#9. Copy konfigurasi dan key admin ke semua node
+ceph-deploy admin node1 node2 node3
+
+#10. Set permission
+sudo chmod +r /etc/ceph/ceph.client.admin.keyring
+ssh node2 "sudo chmod +r /etc/ceph/ceph.client.admin.keyring"
+ssh node3 "sudo chmod +r /etc/ceph/ceph.client.admin.keyring"
+
+#11. Verifikasi
+ceph health
+ceph -w
+ceph df
+ceph status
+ceph -s
+ceph osd stat
+ceph osd dump
+ceph osd tree
+ceph mon stat
+ceph mon dump
+ceph quorum_status
+ceph auth list
+ceph auth get client.admin
+ceph auth export client.admin
+
+#C> Verifikasi storage cluster sudah berjalan tanpa error dengan indikator HEALTH_OK dan Active+Clean. Beri nama X-cp-adm-C.png
+
+#12. Test operasi object data
+ceph osd pool create pool-[username] 128
+rbd pool init pool-[username]
+echo test > filetest1.txt
+rados put object-test1 filetest1.txt --pool=pool-[username]
+rados ls --pool=pool-[username]
+
+rados ls --pool=pool-[username]
+rados rm object-test1 --pool=pool-[username]
+rados ls --pool=pool-[username]
+
+ceph daemon /var/run/ceph/ceph-mon.$(hostname -s).asok config show | grep mon_allow_pool_delete
+
+
+##### Quiz #####
+
+1. Aktifkan Ceph Dasboard untuk monitoring Ceph Storage Cluster, lalu ubah port default menjadi 55XX (ex: 5502 untuk absen no.2 dst.)
+2. Hapus pool pool-[username]
+
+#D> Screenshot tampilan Ceph Dashboard yang sudah diaktifkan lalu verifikasi juga via netstat. Beri nama X-cp-adm-D.png
+#E> Screenshot hasil verifikasi bahwa pool-[username] sudah berhasil dihapus. Beri nama X-cp-adm-E.png

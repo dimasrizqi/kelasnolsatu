@@ -1,0 +1,283 @@
+##########################
+##### Lab 1 - OR-ADM #####
+##########################
+
+##### Instruksi Environment Lab #####
+0. Saat ada X maka ubah ke nomor absen anda
+1. Buat 2 instance dengan image CentOS-7-x86_64-GenericCloud-1802
+2. Spesifikasi masing-masing Instance 4vCPU dan 8GB untuk host master 4 vCPU dan 4GB vRAM untuk host node
+3. Buat 2 Volume sebesar 4 GB dengan nama vol-masterX, vol-nodeX lalu attach ke masing-masing nodes
+
+#A> Screenshot bagian Network Topology > Topology > Normal. Beri nama X-or-adm-A.png
+
+########## Eksekusi di Semua Node ##########
+
+##### Pastikan IP, Gateway, dan Hostname Sesuai #####
+
+### Node masterX ###
+Interface: eth0
+IP Address: 10.X.X.90/24
+Gateway: 10.X.X.1
+Hostname: masterX.openshift.local
+
+### Node nodeX ###
+Interface: eth0
+IP Address: 10.X.X.91/24
+Gateway: 10.X.X.1
+Hostname: nodeX.openshift.local
+
+### Verifikasi volume baru di masing-masing host
+fdisk -l 
+
+############### Konfigurasi DNSmasq ###############
+
+#### Eksekusi di host master ####
+
+#1. Pasang paket dnsmasq
+yum -y install dnsmasq
+
+#2. Buat file openshift.conf
+vi /etc/dnsmasq.d/openshift.conf
+
+strict-order
+domain-needed
+local=/openshift.local/
+bind-dynamic
+log-queries
+
+address=/.app.openshift.local/[IP Internal host master]
+
+#3.  Tambahkan ke /etc/hosts
+vi /etc/hosts
+
+[IP Internal host master] 	masterX.openshift.local master
+[IP Internal host node] 	nodeX.openshift.local node
+
+#4.  Tambah DNS resolver ke /etc/resolv.conf
+vi /etc/resolv.conf
+...
+nameserver [IP Internal host master]
+
+#5. Edit /etc/dnsmasq.conf
+vi /etc/dnsmasq.conf
+
+listen-address=[IP Internal host master]
+...
+server=8.8.8.8
+
+#6. Enable & start dnsmasq
+systemctl enable dnsmasq
+systemctl start dnsmasq
+systemctl status dnsmasq
+
+#7. Tambahkan rules iptables untuk service DNS
+yum install -y iptables-services
+sudo systemctl enable iptables
+sudo systemctl start iptables
+sudo systemctl status iptables
+
+sudo iptables -I INPUT 1 -p TCP --dport [port-dns] -j ACCEPT
+sudo iptables -I INPUT 1 -p UDP --dport [port-dns] -j ACCEPT
+iptables-save > /etc/sysconfig/iptables
+
+#8. Verifikasi dengan ping & dig
+ping -c 3 google.com
+ping -c 3 masterX.openshift.local
+ping -c 3 nodeX.openshift.local
+
+yum install -y bind-utils
+dig masterX.openshift.local @[IP Internal host master]
+dig nodeX.openshift.local @[IP Internal host master]
+
+#B> Screenshot jika sukses melakukan verifikasi. Beri nama X-or-adm-B.png
+
+#9. Tambahkan resolv.conf ke folder /etc/origin/node/
+mkdir -p /etc/origin/node
+touch /etc/origin/node/resolv.conf
+
+##### Eksekusi di host node #####
+#1. Pasang paket dnsmasq
+sudo yum install -y dnsmasq
+
+#2. Edit /etc/dnsmasq.conf
+vi /etc/dnsmasq.conf
+...
+server=[IP Internal host master]
+
+
+#3.  Tambah nameserver ke /etc/resolv.conf
+vi /etc/resolv.conf
+...
+nameserver [IP Internal host master]
+
+#4. Enable & start dnsmasq
+systemctl enable dnsmasq
+systemctl start dnsmasq
+systemctl status dnsmasq
+
+#5. Test ping & dig
+ping -c 3 google.com
+ping -c 3 masterX.openshift.local
+ping -c 3 nodeX.openshift.local
+
+yum install -y bind-utils
+dig masterX.openshift.local @(IP int host master) +short
+dig nodeX.openshift.local @(IP int host master) +short
+
+#6. Tambahkan resolv.conf ke folder /etc/origin/node/
+sudo mkdir -p /etc/origin/node
+sudo touch /etc/origin/node/resolv.conf
+
+
+############### Prerequisites - Eksekusi di semua host ###############
+
+#1. Disable firewalld
+systemctl stop firewalld
+systemctl disable firewalld
+systemctl status firewalld
+
+#2. Install NetworkManager
+yum install -y NetworkManager
+vi /etc/NetworkManager/NetworkManager.conf
+...
+[main]
+dns=none
+
+systemctl enable NetworkManager
+systemctl start NetworkManager
+systemctl status NetworkManager
+
+#3. Verifikasi SELINUX=enforcing & SELINUXTYPE=targeted
+sudo cat /etc/selinux/config
+
+#4. Ubah Setting PATH
+
+sudo vi ~/.bash_profile
+
+export PATH=$PATH:/bin:/sbin:/usr/bin:/usr/sbin
+
+source ~/.bash_profile
+sudo echo $PATH
+
+
+#5. Install Paket Utilities
+sudo yum install -y wget git net-tools bind-utils iptables-services bridge-utils bash-completion curl vim openssl
+
+#6. Update paket
+sudo yum -y update
+sudo systemctl reboot
+
+#7. Install EPEL repository:
+sudo yum -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+sudo sed -i -e "s/^enabled=1/enabled=0/" /etc/yum.repos.d/epel.repo
+
+
+#### Instalasi Docker #####
+#1. Install Docker
+sudo yum install -y docker
+
+#2. Konfigurasi Docker Storage
+sudo fdisk -l
+sudo vgcreate docker-vg /dev/vdx
+sudo vgdisplay
+
+vim /etc/sysconfig/docker-storage-setup
+
+VG=docker-vg
+
+sudo docker-storage-setup
+sudo lvs
+
+#### Instalasi Openshift ####
+
+#1. Install ansible
+sudo yum -y --enablerepo=epel install ansible pyOpenSSL
+
+#2. Edit file /etc/ansible/hosts
+sudo vi /etc/ansible/hosts
+
+# Sesuaikan hostname masing-masing host
+# Ganti x.x.x.x dengan ip floating host master
+# Ganti y.y.y.y dengan ip floating host node
+
+[OSEv3:children]
+masters
+nodes
+etcd
+
+# Set variables common for all OSEv3 hosts
+[OSEv3:vars]
+# SSH user, this user should allow ssh based auth without requiring a password
+ansible_ssh_user=root
+
+# If ansible_ssh_user is not root, ansible_become must be set to true
+#ansible_become=true
+
+openshift_deployment_type=origin
+
+# uncomment the following to enable htpasswd authentication; defaults to DenyAllPasswordIdentityProvider
+openshift_master_identity_providers=[{'name': 'htpasswd_auth', 'login': 'true', 'challenge': 'true', 'kind': 'HTPasswdPasswordIdentityProvider', 'filename': '/etc/origin/master/htpasswd'}]
+
+openshift_master_default_subdomain=app.openshift.local
+openshift_docker_insecure_registries=172.30.X.0/16
+
+openshift_disable_check = memory_availability,disk_availability
+
+# host group for masters
+[masters]
+master.openshift.local openshift_schedulable=true containerized=false openshift_hostname=master.openshift.local openshift_public_hostname=master.openshift.local openshift_public_ip=x.x.x.x
+
+# host group for etcd
+[etcd]
+master.openshift.local
+
+# host group for nodes, includes region info
+[nodes]
+master.openshift.local openshift_node_labels="{'region': 'infra', 'zone': 'default'}"
+node.openshift.local openshift_node_labels="{'region': 'primary', 'zone': 'east'}" openshift_schedulable=true openshift_hostname=node.openshift.local openshift_public_hostname=node.openshift.local openshift_public_ip=y.y.y.y
+
+
+#4. Clone the openshift/openshift-ansible
+cd ~
+git clone https://github.com/openshift/openshift-ansible
+cd openshift-ansible
+
+# pilih Branch versi release-3.9
+
+#5. Eksekusi Ansible Plyabook
+sudo yum install -y screen
+screen -R install
+
+sudo ansible-playbook ~/openshift-ansible/playbooks/prerequisites.yml
+# Pastikan tidak error/failed
+
+sudo ansible-playbook ~/openshift-ansible/playbooks/deploy_cluster.yml
+#C> Screenshot jika sukses melakukan installasi openshift tanpa error. Beri nama X-or-adm-C.png
+
+### Keluar screen tanpa mematikan: tekan Ctrl+A kemudian tekan D
+### Menampilkan screen yang aktif: screen -ls
+### Kembali ke screen packstack: screen -r install
+
+
+#### Verifikasi Cluster ####
+
+# Eksekusi di host master
+#1. List node
+
+oc get nodes
+oc get nodes --show-labels=true
+
+#D> Pastikan status semua node READY jika sukses beri nama X-or-adm-D.png
+
+#2. Buat user untuk login openshift
+sudo htpasswd /etc/origin/master/htpasswd admin
+
+#3. login
+oc login
+oc logout
+
+##### Quiz #####
+
+1. Akses web console openshift lalu login dengan user yang sudah dibuat
+
+#E> Screenshot tampilan openshift web console jika sukses login. Beri nama X-or-adm-E.png

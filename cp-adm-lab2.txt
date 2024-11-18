@@ -1,0 +1,93 @@
+##########################
+##### Lab 2 - CP-ADM #####
+##########################
+
+##### RADOS BLOCK DEVICE (RBD) #####
+#0. di Ceph monitor node Login sebagai root
+su -
+
+#1. Membuat block device image
+ceph osd pool create pool-testX 128
+rbd pool init pool-testX
+rbd create pool-testX/blockX --size 5120
+
+rbd list pool-testX
+rbd info pool-testX/blockX
+
+#2. Maping image ke block device
+rbd map pool-testX/blockX -m [hostname-mon-node] -k /etc/ceph/ceph.client.admin.keyring
+rbd showmapped
+
+#F> Format block device baru tersebut dengan file system XFS, lalau mounting ke /mnt/blockX. Beri nama X-cp-adm-F.png
+
+##### RBD SNAPSHOT & CLONE #####
+#0. Login sebagai root
+su -
+
+#1. Membuat snapshot
+fallocate -l 1G /mnt/blockX/test1.img
+fallocate -l 1G /mnt/blockX/test2.img
+fallocate -l 1G /mnt/blockX/test3.img
+md5sum test3.img
+
+ls -lh /mnt/blockX
+rbd snap create pool-testX/blockX@snap-blockX
+
+#2. Menampilkan snapshot
+rbd snap ls pool-testX/blockX
+
+#3. Uji Rollback snapshot
+rm -rf /mnt/blockX/test3.img
+ls -lh /mnt/blockX/
+umount /dev/rbdx
+df -h
+
+rbd snap rollback pool-testX/blockX@snap-blockX
+mount /dev/rbdx /mnt/blockX
+ls -lh /mnt/blockX/
+md5sum test3.img
+
+#G> Pastikan file test3.img sudah kembali dan checksumnya sama setelah dirollback. Beri nama X-cp-adm-G.png
+
+#4. Protect snapshot
+rbd info pool-testX/blockX@snap-blockX
+rbd snap protect pool-testX/blockX@snap-blockX
+rbd info pool-testX/blockX@snap-blockX
+
+#5. Membuat clone
+rbd clone pool-testX/blockX@snap-blockX pool-testX/clone-blockX
+rbd info pool-testX/clone-blockX
+
+#6. Menampilkan children snapshot (clone)
+rbd children pool-testX/blockX@snap-blockX
+rbd info pool-testX/clone-blockX
+
+#7. Flattend Cloned Image
+rbd flatten pool-testX/clone-blockX
+rbd info pool-testX/clone-blockX
+rbd list pool-testX
+
+#8. Unprotect snapshot
+rbd info pool-testX/blockX@snap-blockX
+rbd snap rm pool-testX/blockX@snap-blockX
+
+rbd snap unprotect pool-testX/blockX@snap-blockX
+rbd info pool-testX/blockX@snap-blockX
+
+#9. Delete snapshot
+rbd snap ls pool-testX/blockX
+rbd snap rm pool-testX/blockX@snap-blockX
+rbd snap ls pool-testX/blockX
+
+#10. Purge / Delete all snapshot
+rbd snap purge pool-testX/blockX
+ceph osd pool delete pool-testX pool-testX  --yes-i-really-really-mean-it
+
+
+##### Quiz #####
+
+1. Buat block device image baru dengan nama block-new-X di dalam pool pool-[username] sebesar 1 GB dan mounting ke /mnt/block-new-X
+2. Clone block-new-X dengan nama clone-block-new-X lalu mounting disknya ke /mnt/clone-block-new-X dan isikan file dengan nama file-[username].txt
+
+#H> Verifikasi bahwa block-new-X sudah berhasil dimounting ke path yang sesuai. Beri nama X-cp-adm-H.png
+#I> Verifikasi bahwa clone-block-new-X sudah berhasil dimounting ke path yang betul dan berisi file yang sesuai. Beri nama X-cp-adm-I.png

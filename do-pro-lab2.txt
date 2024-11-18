@@ -1,0 +1,240 @@
+##########################
+##### Lab 2 - DO-PRO #####
+##########################
+
+##### Instruksi Environment Lab #####
+0. Saat ada X maka ubah ke nomor absen anda.
+
+
+###########################
+##### Install Grafana #####
+###########################
+
+##### Eksekusi di node podX-node0 #####
+
+##1. Download Paket Grafana
+cd /opt
+wget https://s3-us-west-2.amazonaws.com/grafana-releases/release/grafana-5.1.4.linux-x64.tar.gz
+tar zxvf grafana-5.1.4.linux-x64.tar.gz
+
+##2. Start Grafana
+cd grafana-5.1.4
+screen -R grafana
+./bin/grafana-server web
+
+##3. Gunakan browser dan akses http://floating-ip-podX-node0:3000/login:
+#J> Full screenshot form login Grafana dan beri nama X-do-pro-J.png
+
+##4. Running Grafana as a service
+vi /etc/systemd/system/grafana.service
+
+[Unit]
+Description=Grafana
+
+[Service]
+User=root
+ExecStart=/opt/grafana-5.1.4/bin/grafana-server -homepath /opt/grafana-5.1.4/ web
+
+[Install]
+WantedBy=default.target
+
+systemctl daemon-reload
+systemctl enable grafana.service
+systemctl start grafana.service
+systemctl status grafana.service
+journalctl -u grafana
+
+##5. Menambahkan Data Source
+#- Gunakan browser dan akses Dashboard Grafana: http://floating-ip-podX-node0:3000/login (username: admin / password: admin)
+#- Configuration > Data Sources > Add data source
+#- Name: Prometheus-[username]
+#- Type: Prometheus
+#- URL: http://floating-ip-podX-node0:9090
+#- Save & Test
+#- Pastikan mendapat pesan: Data source is working
+
+
+############################
+##### Create Dashboard #####
+############################
+
+##### Akses ke dashboard Grafana dan buat dashboard untuk podX-node1 #####
+
+##1. Buat Panel: Status
+#- Create > Dashboard > Add > SingleStat
+#- Klik Panel Title > Edit
+#- Tab General > Title: Status
+#- Tab Metrics > Data Sources: Prometheus-[username], Metrics: up{instance="10.X.X.20:9100",job="node-[username]"}
+#- Tab Options > Stat: Current
+#- Tab Value Mappings > Set value mappings: 1 -> Up, 0 -> Down
+#- Save Dashboard > New name: podX-node1
+
+##2. Buat Panel: Uptime
+#- Dashboard podX-node1 > Add Panel > SingleStat
+#- Klik Panel Title > Edit
+#- Tab General > Title: Uptime
+#- Tab Metrics > Data Sources: Prometheus-[username], Metrics: (time() - process_start_time_seconds{instance="10.X.X.20:9100",job="node-[username]"})
+#- Tab Options > Stat: Current, Unit: Seconds
+#- Save Dashboard
+
+##3. Buat Panel: CPU Core
+#- Dashboard podX-node1 > Add Panel > SingleStat
+#- Klik Panel Title > Edit
+#- Tab General > Title: CPU Core
+#- Tab Metrics > Data Sources: Prometheus-[username], Metrics: count(count(node_cpu_seconds_total{instance="10.X.X.20:9100",job="node-[username]"}) without (mode)) by (instance)
+#- Tab Options > Stat: Current, Unit: none
+#- Save Dashboard
+
+##4. Buat Panel: Memory
+#- Dashboard podX-node1 > Add Panel > SingleStat
+#- Klik Panel Title > Edit
+#- Tab General > Title: Memory
+#- Tab Metrics > Data Sources: Prometheus-[username], Metrics: node_memory_MemTotal_bytes{instance="10.X.X.20:9100",job="node-[username]"}
+#- Tab Options > Stat: Current, Unit: none
+#- Save Dashboard
+
+##5. Buat Panel: Memory Used
+#- Dashboard podX-node1 > Add Panel > Graph
+#- Klik Panel Title > Edit
+#- Tab General > Title: Memory Used
+#- Tab Metrics > Data Sources: Prometheus-[username], Metrics: (node_memory_MemTotal_bytes{instance="10.X.X.20:9100",job="node-[username]"} - (node_memory_MemFree_bytes{instance="10.X.X.20:9100",job="node-[username]"} + node_memory_Cached_bytes{instance="10.X.X.20:9100",job="node-[username]"} + node_memory_Buffers_bytes{instance="10.X.X.20:9100",job="node-[username]"})) / node_memory_MemTotal_bytes{instance="10.X.X.20:9100",job="node-[username]"} * 100
+#- Tab Axes > Unit: percent (0-100)
+#- Tab Legend > Show (✔), As Table (✔), Current (✔)
+#- Save Dashboard
+
+##6. Buat Panel: CPU Used
+#- Dashboard podX-node1 > Add Panel > Graph
+#- Klik Panel Title > Edit
+#- Tab General > Title: CPU Used
+#- Tab Metrics > Data Sources: Prometheus-[username], Metrics: 100 - (avg by (instance) (irate(node_cpu_seconds_total{instance="10.X.X.20:9100",job="node-[username]",mode="idle"}[5m])) * 100)
+#- Tab Axes > Unit: percent (0-100)
+#- Tab Legend > Show (✔), As Table (✔), Current (✔)
+#- Save Dashboard
+
+#K> Full screenshot dashboard podX-node1 dan beri nama X-do-pro-K.png
+
+
+################
+##### Quiz #####
+################
+
+##1. Buat dashboard untuk podX-node0 dengan nama podX-node0.
+##2. Buat panel seperti panel yang ada di dashboard podX-node1.
+##3. Tambah panel dengan ketentuan sebagai berikut:
+#- Nama Panel: Network, Type: Graph, Tampilkan network transmit dan network receive (bytes).
+#- Nama Panel: Disk Space, Type: Graph, Tampilkan free disk space (mountpoint="/").
+
+#L> Full screenshot dashboard podX-node0 dan beri nama X-do-pro-L.png
+
+
+################################
+##### Install AlertManager #####
+################################
+
+##### Eksekusi di node podX-node0 #####
+
+##1. Download Paket AlertManager
+cd /opt
+wget https://github.com/prometheus/alertmanager/releases/download/v0.15.1/alertmanager-0.15.1.linux-amd64.tar.gz
+tar xvfz alertmanager-0.15.1.linux-amd64.tar.gz
+
+##2. Konfigurasi AlertManager
+cd alertmanager-0.15.1.linux-amd64
+vi config.yml
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: [Alertname]
+  receiver: email-me
+
+receivers:
+- name: email-me
+  email_configs:
+  - to: "email1@gmail.com"
+    from: "email1@gmail.com"
+    smarthost: smtp.gmail.com:587
+    auth_username: "email1@gmail.com"
+    auth_identity: "email1@gmail.com"
+    auth_password: "password email1@gmail.com"
+    send_resolved: True
+
+##3. Running AlertManager as a Service
+vi /etc/systemd/system/alert_manager.service
+
+[Unit]
+Description=Alert Manager
+
+[Service]
+User=root
+ExecStart=/opt/alertmanager-0.15.1.linux-amd64/alertmanager --config.file=/opt/alertmanager-0.15.1.linux-amd64/config.yml --web.external-url=http://floating-ip-podX-node0:9093/
+
+[Install]
+WantedBy=default.target
+
+
+./amtool check-config config.yml
+systemctl daemon-reload
+systemctl enable alert_manager.service
+systemctl start alert_manager.service
+systemctl status alert_manager.service
+journalctl -u alert_manager
+
+##4. Gunakan browser dan akses URL berikut:
+#- http://floating-ip-podX-node0:9093/metrics
+#- http://floating-ip-podX-node0:9093
+#- http://floating-ip-podX-node0:9093/#/status
+
+##5. Buat Alert Rules
+cd /opt/prometheus-2.3.1.linux-amd64
+vi node_rules.yml
+
+groups:
+- name: node.rules
+  rules:
+  - alert: Down
+    expr: up == 0
+    for: 5m
+    annotations:
+      summary: "Instance {{ $labels.instance }} down"
+      description: "Instance {{ $labels.instance }} of job {{ $labels.job }} has been down for more than 5 minutes."
+
+##6. Tambahkan berikut ke file konfigurasi Prometheus Server.
+vi config.yml
+
+alerting:
+  alertmanagers:
+  - static_configs:
+    - targets:
+      - 10.X.X.10:9093
+
+rule_files:
+  - "node_rules.yml"
+
+
+./promtool check config config.yml
+systemctl restart prometheus_server
+
+# Gunakan browser dan akses URL berikut:
+# http://floating-ip-podX-node0:9090/config
+# http://floating-ip-podX-node0:9090/rules
+# http://floating-ip-podX-node0:9090/alerts
+
+##7. Uji Coba AlertManager
+# Shutdown podX-node1
+# Akses http://floating-ip-podX-node0:9090/targets
+# Akses http://floating-ip-podX-node0:9090/alerts, state node exporter & docker exporter di podX-node1 dalam keadaan PENDING.
+# Tunggu sampai state menjadi FIRING.
+# Akses http://floating-ip-podX-node0:9093
+# Check e-mail.
+
+#M> Jika sudah mendapat e-mail notifikasi podX-node1 firing, full screenshot e-mail dan beri nama X-do-pro-M.png
+
+# Start instance podX-node1
+# Akses http://floating-ip-podX-node0:9090/targets
+# Akses http://floating-ip-podX-node0:9090/alerts
+# Akses http://floating-ip-podX-node0:9093
+# Check e-mail.
+
+#N> Jika sudah mendapat e-mail notifikasi podX-node1 resolved, full screenshot e-mail dan beri nama X-do-pro-N.png

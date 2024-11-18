@@ -1,0 +1,141 @@
+##########################
+##### Lab 2 - OR-ADM #####
+##########################
+
+#### Buat Project & Deploy Aplikasi ####
+
+# Eksekusi di host master
+#1. Login
+oc login
+
+#2. Buat Project
+oc new-project project1
+oc get project
+
+#3. Deploy Aplikasi
+# Fork aplikasi dari repo https://github.com/openshift/ruby-ex
+
+oc new-app centos/ruby-22-centos7~https://github.com/<username>/ruby-ex.git --name ruby-ex
+oc logs -f bc/ruby-ex
+
+#4. Cek hasil deploy
+oc status
+oc describe svc/ruby-ex
+
+# Akses aplikasi menggunakan curl
+#F> Screenshot jika sudah sukses melakukan curl ke aplikasi. Beri nama X-do-ori-F.png
+
+#5. List pod & service
+oc get pod
+oc get service
+
+#6. Expose aplikasi
+oc expose service ruby-ex
+oc get route
+
+# Buka browser dan akses aplikasi dengan domain
+#G> Screenshot jika sudah sukses membuka aplikasi dengan domain via browser. Beri nama X-do-ori-G.png
+
+#7. Unexpose aplikasi
+oc delete route ruby-ex
+oc get route
+
+#8. Delete project
+oc delete project project1
+oc get project
+
+
+#### Deploy Aplikasi Python + Flask ####
+
+# Source code: https://github.com/OpenShiftDemos/os-sample-python
+
+# Eksekusi di host master
+#1. Login
+oc login
+
+#2. Buat Project
+oc new-project project2
+
+#3. Deploy Aplikasi
+oc new-app python https://github.com/OpenShiftDemos/os-sample-python.git --name project2
+
+#4. Cek hasil deploy
+oc status
+oc describe svc/project2
+
+# Akses aplikasi menggunakan curl
+#H> Screenshot jika sudah sukses melakukan curl ke aplikasi. Beri nama X-do-ori-H.png
+oc get pod
+
+#5. Expose aplikasi
+oc expose service project2 --hostname=[username].openshift.local
+oc get route
+
+# Buka browser dan akses ke [username].openshift.local
+#I> Screenshot jika sudah sukses membuka aplikasi dengan domain via browser. Beri nama X-do-ori-I.png
+
+#6. Delete project
+oc delete project project2
+oc get project
+
+
+####### TIDAK WAJIB DIKERJAKAN#######
+
+#### OpenShift POD Autoscalling ####
+
+
+#1 Pasang paket depedensi untuk metric
+yum install -y java-1.8.0-openjdk-headless python-passlib
+
+#2. Aktifkan metrics openshift
+vi /etc/ansible/hosts
+
+[OSEv3:vars]
+# SSH user, this user should allow ssh based auth without requiring a password
+ansible_ssh_user=root
+openshift_metrics_install_metrics=true
+openshift_metrics_hawkular_hostname=hawkular-metrics.master.openshift.local
+
+sudo ansible-playbook ~/openshift-ansible/playbooks/openshift-metrics/config.yml -e openshift_metrics_image_version=v3.9
+
+oc login -u system:admin
+oc get pods -n openshift-infra
+oc adm diagnostics MetricsApiProxy
+
+# pastikan hawkular dan heapster ready semua
+
+oc new-project project3
+oc project
+
+oc new-app openshift/php~https://github.com/RedHatWorkshops/welcome-php.git
+
+oc status -v
+oc expose svc welcome-php
+oc get routes
+
+oc describe svc/welcome-php
+
+vi scaler.yaml
+
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: front-end
+spec:
+  scaleTargetRef:
+    kind: DeploymentConfig
+    name: welcome-php
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 50
+
+oc create -f scaler.yaml 
+
+oc get hpa
+oc describe hpa front-end
+
+# Test benckmark aplikasi dengan ab
+screen -R ab
+ab -n 1000000 -c 1000 http://welcome-php-project3.app.openshift.local/
+
+oc get hpa --watch
