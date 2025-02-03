@@ -1,0 +1,176 @@
+###########################
+###### Lab 2 - PU-ADM #####
+###########################
+
+###### Instruksi Environment Lab #####
+0. Saat ada X maka ubah ke nomor absen anda dan [USERNAME] menjadi username nolsatu anda
+
+
+###### Puppet Class and Relation #######
+# Untuk membuat catalog, akan lebih rapi jika tiap fungsi dipisah-pisah dan tidak dijadikan satu di dalam 'node'.
+# Dengan membuat class maka catalog akan lebih modular dan mudah untuk dimanage.
+# Relasi antar class dapat dilakukan dengan inherit atau include
+
+
+##### Basic class dan inherit relation #####
+
+##1. Ganti isi site.pp menjadi seperti berikut
+# Eksekusi di instance master
+vim /etc/puppetlabs/code/environments/production/manifests/site.pp
+
+
+class basic_tools {
+  $basic_packages = ['python-minimal', 'python-pip', 'unzip']
+  package { $basic_packages:
+    ensure  => 'installed'
+  }
+}
+
+class monitoring_tools inherits basic_tools{
+  $monitoring_packages = ['htop', 'iftop', 'slurm']
+  package {  $monitoring_packages:
+    ensure  => 'installed'
+  }
+}
+
+class text_editor {
+  $text_packages = ['nano', 'vim']
+  package { $text_packages:
+    ensure  => 'installed'
+  }
+}
+
+node 'testsrv1' {
+  class { monitoring_tools: }
+  class { text_editor: }
+}
+
+node 'websrv-u1' {
+  class { text_editor: }
+}
+
+node 'default' {
+  class { basic_tools: }
+}
+
+##2. Pull catalog
+# Eksekusi di testsrv1 dan websrv-u1
+puppet agent -t
+
+# pastikan package dari class monitoring-tools dan text-editor terinstall di ntestsrv1, package dari class text-editor terinstall di websrv-u1
+
+
+###### Parameterized Class #####
+# Dalam membuat class, dapat juga disertakan paramater yang akan diproses oleh class tersebut
+# Dicontohkan class create-user yang menerima parameter username, class ini akan membuat user dengan username sesuai dengan parameter yang dikirim
+
+##1. Membuat hashed password
+# Eksekusi di instance master
+openssl passwd -1
+Password:
+Verifying - Password:
+<hashed password>
+
+##2. Edit site.pp
+# Eksekusi di instance master
+vim /etc/puppetlabs/code/environments/production/manifests/site.pp
+
+...
+# ganti <hashed password> dengan hash password yang sudah dibuat (##1).
+class create_user ($username){
+  user { $username:
+    ensure => present,
+    shell  => '/bin/bash',
+    home   => "/home/$username",
+    password => '<hashed password>',
+    managehome => true
+  }
+}
+
+node 'websrv-u1', 'websrv-c1' {
+...
+  class { create_user:
+    username  => '[USERNAME]'
+  }
+...
+}
+
+##3. Pull catalog
+# Eksekusi di websrv-u1, websrv-c1
+puppet agent -t
+cat /etc/passwd
+
+# Tes dengan login menggunakan user [USERNAME] dengan password yang diset di class 'create_user'.
+
+#>> Test login/switch user ke user [USERNAME] di websrv-u1 dan tampilkan /etc/passwd. Screenshot beri nama X-pu-adm-I.png
+
+
+##### Membuat Module, copy file dari master, dan run command #####
+# Upload file infinite_scroll.zip ke instance master.
+# Pada puppet v3 dapat generate struktur module dengan command puppet module generate [username-module_name].
+# Pada puppet v6 menggunakan pdk.
+# File yang ada di /etc/puppetlabs/code/environments/production/modules/<module_name>/files/ dapat dicopy dari master ke agent
+# Dicontohkan akan membuat module yang akan menginstall apache, copy web content dari puppetmaster (infinite_scroll.zip) ke agent (/var/www/html/infinite_scroll.zip), lalu extrack file tersebut.
+
+##1. Instalasi paket pdk & tree
+# Eksekusi di instance master
+apt-get install pdk tree
+
+cd /etc/puppetlabs/code/environments/production/modules
+pdk new module mymodule
+ls
+
+# Copy infinite_scroll.zip ke folder mymodule/files
+
+##2. Edit file init.pp yang berada di module mymodule
+vim mymodule/manifests/init.pp
+
+class mymodule{
+  class { 'apache': }
+    apache::vhost { 'localhost':
+    port    => '80',
+    docroot => '/var/www/html'
+  }
+
+  package { 'unzip':
+    ensure => 'installed'
+  }
+
+  file { "/var/www/html/infinite_scroll.zip" :
+    source  => "puppet:///modules/mymodule/infinite_scroll.zip",
+    notify  => Exec["extract_test_file"],
+  }
+
+  exec { "extract_test_file":
+    refreshonly => true,
+    command     => "/usr/bin/unzip /var/www/html/infinite_scroll.zip -d /var/www/html/",
+  }
+}
+
+##3.  Edit dan ganti isi file site.pp menjadi berikut: 
+vim /etc/puppetlabs/code/environments/production/manifests/site.pp
+
+node 'websrv-u1' {
+  class { mymodule: }
+}
+
+##4. Pull catalog
+# Eksekusi di websrv-u1
+puppet agent -t
+
+# Akses http://[websrv-u1]/test/ dari browser, pastikan apache telah terinstall dan berisi konten dari infinite_scroll.zip
+
+#>> Perlihatkan struktur modul 'mymodule' dengan command tree. Screenshot beri nama X-pu-adm-J.png
+#>> Screenshot hasil test browsing. Beri nama X-pu-adm-K.png
+
+
+##### Quiz #####
+1. Buat module dengan nama quiznginx untuk install nginx,
+2. Buat init.pp di module quiznginx seperti contoh di atas. 
+3. Copy infinite_scroll.zip ke folder quiznginx/files.
+4. Apply module tersebut di websrv-c1.
+5. Test browsing (http://websrv-c1/test/)
+
+#>> Screenshot isi init.pp dari module 'quiznginx'. Beri nama X-pu-adm-L.png
+#>> Screenshot struktur modul 'quiznginx' dengan command tree. Beri nama X-pu-adm-M.png
+#>> Screenshot hasil test browsing. Beri nama X-pu-adm-N.png

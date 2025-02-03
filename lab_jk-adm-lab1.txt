@@ -1,0 +1,110 @@
+##########################
+##### Lab 1 - JK-ADM #####
+##########################
+
+##### Instruksi Environment Lab #####
+0. Saat ada X maka ubah ke nomor absen anda
+1. Buat satu instance podX-jenkins dengan flavor ns.2-2-20 dan IP 10.X.X.80
+2. Instance dibuat dengan image ubuntu-16.04-server-cloudimg-amd64-disk1-20180306.img
+
+#A> Screenshot bagian Network Topology > Topology > Normal. Beri nama X-jk-adm-A.png
+
+### Install jenkins ###
+
+wget -q -O - https://pkg.jenkins.io/debian/jenkins.io.key | sudo apt-key add -
+sudo sh -c 'echo deb http://pkg.jenkins.io/debian-stable binary/ > /etc/apt/sources.list.d/jenkins.list'
+sudo apt update -y
+sudo apt install jenkins -y 
+
+systemctl status jenkins
+netstat -tulpn |grep 8080
+
+## Buka Jenkins di browser:
+[IP_JENKINS_SERVER]:8080
+
+## Unlock password
+cat /var/lib/jenkins/secrets/initialAdminPassword
+
+Install suggested plugins
+
+## Buat Admin User
+Username: 
+Password:
+Confirm password:
+E-mail address:	
+
+Save and Finish -> Start Using Jenkins
+
+#B> Screenshot jika sudah masuk dashboard dengan user yang sudah dibuat. Beri nama X-jk-adm-B.png
+
+### Create And Build A Simple Project ###
+Project Name: myapp01
+Type: Freestyle Project
+Build: Execute shell
+Command: echo "Hello from Jenkins!"
+Build Now -> Build History -> Check Console Output
+Finished: SUCCESS
+
+### Manage Plugins
+Jenkins -> Manage Jenkins
+Manage Plugins
+Avaiable -> Green Balls
+Download Now Install -> Restart
+
+## Manage Global Configuration Jenkins
+Jenkins -> Manage Jenkins
+Global Tool Configuration
+
+## Config JDK
+JDK installations -> Add JDK
+Name: jdk
+Install automatically: Unchecked
+
+## Config Maven
+Manage Jenkins -> Global Tool Configuration
+Maven - > Add Maven
+Name: maven
+Install automatically: Checked
+Version: 3.5.2
+Save
+
+## Fork repositori aplikasi java sederhana
+https://github.com/jenkins-docs/simple-java-maven-app
+
+### Build A GitHub Project ###
+Project Name: myapp02
+Type: Freestyle Project
+GitHub project	: https://github.com/[YOUR-USERNAME]/simple-java-maven-app
+Source Code Management: git
+Repository URL: https://github.com/[YOUR-USERNAME]/simple-java-maven-app
+Build Triggers: GitHub hook trigger for GITScm polling
+Build: Invoke top-level Maven targets
+Maven Version: (masukan nama Maven yang sudah dibuat dilangkah sebelumnya)
+Goals: clean package
+Save
+Build Now -> Build History -> Check Console Output
+Finished: SUCCESS
+
+## Verifikasi file .jar di mesin Jenkins
+ls -la /var/lib/jenkins/workspace/myapp02/target
+java -jar [NAMA_FILE.jar]
+
+#C> Screenshot hasil verifikasi. Beri nama X-jk-adm-C.png
+
+# Note: Github will not accept Local URL, hence, we need to install ngrok software to create live URL for port 8080
+wget -c https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip
+apt -y install unzip
+unzip ngrok-stable-linux-amd64.zip 
+screen -R ngrok
+./ngrok authtoken <YOUR_AUTH_TOKEN dari https://dashboard.ngrok.com/auth>
+./ngrok http 8080
+# akses dashboard dengan http://xxxx.ngrok.io
+
+#D> Screenshot dashboard jenkins yang diakses melalui live url lalu login. Beri nama X-jk-adm-D.png
+
+############
+### Quiz ###
+############
+
+#E> Ubah port dashboard jenkins dengan 80XX lalu akses melalui live url dan login. Screenshot tampilan dashboard dan berinama X-jk-adm-E.png
+#F> buat project java sederhana dengan nama myProject-X, screenshot bagian status project. Berinama X-jk-adm-F.png

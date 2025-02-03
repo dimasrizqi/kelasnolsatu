@@ -1,0 +1,378 @@
+##########################
+##### Lab 1 - CI/CD ######
+##########################
+
+##### Instruksi Environment Lab #####
+0. Saat ada X maka ubah ke nomor absen anda
+1. Buat satu instance podX-node1 dengan flavor ns.2-4-20 dan IP 10.X.X.50
+2. Instance dibuat dengan image ubuntu-16.04-server-cloudimg-amd64-disk1-20180306.img
+
+#A> Screenshot bagian Network Topology > Topology > Normal. Beri nama X-gl-adm-A.png
+
+##### Requirement #####
+
+1. Akun GitLab
+2. Buat 1 project di GitLab
+
+############### PodX-node1 ###############
+
+#### Install Docker ####
+sudo apt -y install docker.io
+sudo systemctl status docker
+
+#### Install Docker Compose ####
+
+#1. Unduh Docker Compose
+sudo curl -L https://github.com/docker/compose/releases/download/1.20.1/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+
+#2.Set permisson executable
+sudo chmod +x /usr/local/bin/docker-compose
+
+#3. Uji instalasi
+sudo docker-compose --version
+
+#### Install Gitlab Runner ####
+
+sudo wget -O /usr/bin/gitlab-runner https://gitlab-runner-downloads.s3.amazonaws.com/latest/binaries/gitlab-runner-linux-amd64
+sudo chmod +x /usr/bin/gitlab-runner
+
+### Membuat user Gitlab CI ###
+sudo useradd --comment 'GitLab Runner' --create-home gitlab-runner --shell /bin/bash
+
+### Install dan Menjalankan service ###
+sudo gitlab-runner install --user=gitlab-runner --working-directory=/home/gitlab-runner
+
+
+######## Buat Project ##########
+
+#1. Buat project di gitlab.com
+Nama project: apps
+Visibility Level : Public
+
+#2. Clone Project
+git clone https://gitlab.com/username/apps.git
+cd apps
+
+### Buat Dockerfile, Docker Compose, GitLab CI dan HTML ###
+
+# Dockerfile
+vi Dockerfile
+
+FROM httpd:latest
+ADD . /usr/local/apache2/htdocs/
+
+# Docker Compose
+vi docker-compose.yml
+
+version: '2'
+services: 
+  app:
+    container_name: app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: app:1
+    network_mode: bridge
+    restart: always
+    ports:
+      - "8070:80"
+
+# GitLab CI
+vi .gitlab-ci.yml
+
+stages:
+- deploy
+
+docker:
+  stage: deploy
+  script:
+    - docker-compose down --rmi all
+    - docker-compose up -d --build
+  only:
+    - master
+  tags:
+    - apps
+
+# HTML
+vi index.html
+
+!! Hello Wolrd !! 
+
+#4. Push ke Gitlab
+git add .
+git commit -m "Initial commit"
+git push
+
+#5. Token Runner
+# Gunakan browser dan akses https://gitlab.com/username/apps
+# Menu Setting > CI / CD > Runners > Shared Runners ## klik Disable shared Runners ##
+# Menu Setting > CI / CD > Runners > Setup a specific Runner manually
+# Catat Token
+
+#6. Register Gitlab Runner Executor Shell
+#Ganti REGISTRATION_TOKEN dengan Token Runner
+sudo gitlab-runner register -n \
+  --url https://gitlab.com/ \
+  --registration-token [REGISTRATION_TOKEN]\
+  --executor shell \
+  --description "apps" \
+  --tag-list "apps"
+
+#7. Set permisson dan Verifikasi Gitlab Runner
+sudo usermod -aG docker gitlab-runner
+sudo -u gitlab-runner -H docker info
+sudo gitlab-runner start
+sudo gitlab-runner list
+sudo gitlab-runner status
+sudo gitlab-runner verify
+
+#B> Screenshot hasil eksekusi gitlab-runner verify "Alive" X-gl-adm-B.png
+
+
+# Pastikan runner app statusnya running
+# Gunakan browser dan akses https://gitlab.com/username/apps/settings/ci_cd
+
+#C> Screenshot Status Runner X-gl-adm-C.png
+
+######## Testing ########
+
+# Gunakan browser dan akses https://gitlab.com/username/app/pipelines
+# Run Pipeline > Create Pipeline
+
+#D> Screenshot pastikan proses pada Pipeline status passed  X-gl-adm-D.png
+
+
+### Eksekusi PodX-node1 ###
+sudo su
+docker ps
+curl -i http://localhost:8070 && echo ""
+
+
+######## Testing Lagi ########
+
+# Buat file ok.html
+vi ok.html
+
+Hello [Username-X]
+
+# Push file ok.html ke project app
+
+# Eksekusi di VM Ubuntu
+sudo su
+docker ps
+curl -i http://localhost:8070 && echo ""
+curl -i http://localhost:8070/ok.html && echo ""
+
+#E> Screenshot hasil dari eksekusi semua curl X-gl-adm-E.png
+
+######## Integrasi Gitlab CI/CD dengan Heroku ##########
+
+#1. Buat project di gitlab.com
+Nama project: ci-cd-[USERNAME]-X
+
+#2. Clone Project
+git clone https://gitlab.com/username/ci-cd-[USERNAME]-X.git
+cd ci-cd
+
+# Gunakan browser dan akses https://gitlab.com/username/ci-cd-[USERNAME]-X
+# Menu Setting > CI / CD > Runners > Setup a specific Runner manually
+# Catat Token
+
+#3. Register Gitlab Runner Executor Docker
+sudo gitlab-runner register -n \
+  --url https://gitlab.com/ \
+  --registration-token [REGISTRATION_TOKEN] \
+  --executor docker \
+  --description "Docker Runner" \
+  --docker-image "node:8.11.3" \
+  --docker-volumes /var/run/docker.sock:/var/run/docker.sock
+
+#4. Verifikasi Gitlab Runner
+gitlab-runner start
+gitlab-runner verify
+
+#5. Buat App baru di heroku.com
+App Name : ci-cd-[USERNAME]-X
+Visibility Level : Public
+
+# Masuk ke https://dashboard.heroku.com/account
+# Pada bagian API Key, catat Token
+
+### Buat File Pendukung ###
+
+# Dockerfile
+vi Dockerfile
+
+FROM node:8.11.3
+ADD . /usr/local/apache2/htdocs/
+
+# .gitlab-ci.yml
+# Ganti [TOKEN_HEROKU] dengan Token Heroku
+vi .gitlab-ci.yml
+
+image: node:8.11.3
+
+stages:
+  - prepare
+  - test
+  - deploy
+
+prepare:
+  stage: prepare
+  script:
+    - npm install
+
+test:
+  stage: test
+  script:
+    - npm test
+
+deploy:
+  stage: deploy
+  script:
+    - git remote add heroku https://heroku:[TOKEN_HEROKU]@git.heroku.com/ci-cd-[USERNAME]-X.git
+    - git push heroku master
+  only:
+    - master
+
+
+# Procfile
+vi Procfile
+
+web: npm start
+
+# index.js
+vi index.js
+
+
+var btn = document.getElementById('hitung');
+
+// fungsi penjumlahan
+function penjumlahan(a, b) {
+    return a + b;
+}
+
+btn.addEventListener('click', function(evt) {
+    // console.log('Hello world');
+    var input1 = document.getElementById('angka1');
+    var input2 = document.getElementById('angka2');
+
+    var angka1 = parseInt(input1.value);
+    var angka2 = parseInt(input2.value);
+
+    var operasi = document.querySelector('input[name=operasi]:checked').value;
+
+    // console.log(operasi);
+    var result = 0;
+    switch (operasi) {
+        case 'penjumlahan':
+            result = angka1 + angka2;
+            break;
+        case 'pengurangan':
+            result = angka1 - angka2;
+            break;
+        case 'perkalian':
+            result = angka1 * angka2;
+            break;
+        case 'pembagian':
+            result = angka1 / angka2;
+            break;
+    }
+
+    document.querySelector('h1').innerHTML = "Hasil " + operasi + ": " + result;
+});
+
+# package.json
+vi package.json
+
+{
+  "name": "ci-cd-workshop",
+  "version": "1.0.0",
+  "description": "hello",
+  "scripts": {
+    "start": "http-server",
+    "test": "node test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@gitlab.com/okyantoro/ci-cd-workshop.git"
+  },
+  "author": "Oky Antoro",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://gitlab.com/okyantoro/ci-cd-workshop/issues"
+  },
+  "homepage": "https://gitlab.com/okyantoro/ci-cd-workshop#README",
+  "dependencies": {
+    "http-server": "^0.11.1",
+    "webpack": "^4.16.3",
+    "webpack-dev-server": "^3.1.5"
+  },
+  "devDependencies": {
+    "webpack-cli": "^3.1.0"
+  }
+}
+
+# package-lock.json
+wget https://gitlab.com/dotdidik/test-ci/raw/master/package-lock.json
+
+
+# test.js
+vi test.js
+
+const assert = require('assert');
+
+assert.equal(0, 0, 'Should equal to 0');
+
+# index.html
+vi index.html
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Simple DOM example</title>
+  </head>
+  <body>
+      Angka 1: <input type="text" id="angka1" /><br />
+      Angka 2: <input type="text" id="angka2" /><br />
+      Operasi: 
+      <input type="radio" checked value="penjumlahan" name="operasi" /> Penjumlahan 
+      <input type="radio" value="pengurangan" name="operasi" /> Pengurangan 
+      <input type="radio" value="perkalian" name="operasi" /> Perkalian
+      <input type="radio" value="pembagian" name="operasi" /> Pembagian
+      <br />
+      <button id="hitung">Hitung</button>
+      <h1 style="text-align: center; color: red">Hasil penjumlahan: 200</h1>
+
+      <script type="text/javascript" src="index.js"></script>
+      <p align="center">Copyright [USERNAME-X]</p>
+    </body>
+</html>
+
+
+#3. Push ke Gitlab
+git add .
+git commit -m "Initial commit"
+git push
+
+##### Cek Hasil Deployment #####
+# Gunakan browser dan akses https://gitlab.com/username/ci-cd-[USERNAME]-X/pipelines
+# Run Pipeline > Create Pipeline
+# Tunggu sampai proses pipeline selesai dan status menjadi passed
+
+#F> Verifikasi https://gitlab.com/username/ci-cd-[USERNAME]-X/-/jobs/xxxxxxxxx Job succeeded dan Runner menggunakan Docker  X-gl-adm-F.png
+
+# Akses hasil Deploymend 
+https://ci-cd-[USERNAME]-X.herokuapp.com/
+
+#G> Screenshot akses hasil deployment Heroku X-gl-adm-G.png
+
+##### Quiz #####
+
+1. Buat blog bersumber dari https://gitlab.com/rgaiacs/blogdown-gitlab 
+2. Ganti url hasil deploy sebelumnya menjadi https://[username].gitlab.io/blogdown-gitlab
+### username diambil dari username gitlab
+
+#H> Screenshot hasil fork dan proses pada pipeline passed X-gl-adm-H.png
+#I> Screenshot verifikasi bahwa URL telah diganti menjadi username gitlab dan akses melalui web browser X-gl-adm-I.png

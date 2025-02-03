@@ -1,0 +1,187 @@
+##########################
+##### Lab 2 - CI/CD ######
+##########################
+
+#### Integrasi Gitlab dengan Heroku 2 ####
+#1. Buat project di gitlab.com
+Nama project : ruby-heroku-[USERNAME] 
+Visibility Level : Public
+
+#2. Clone Project 
+git clone https://gitlab.com/[USERNAME]/ruby-heroku-[USERNAME].git
+cd ruby-heroku
+
+#3. Buat App baru di heroku.com
+App Name : ruby-[USERNAME-X]
+
+# Masuk ke https://dashboard.heroku.com/account
+# Pada bagian API Key, catat Token
+
+### Buat File Pendukung ### 
+
+# .gitlab-ci.yml
+vi .gitlab-ci.yml
+
+staging :
+  stage: deploy
+  script:
+  - gem install dpl
+  - dpl --provider=heroku --app=$APP_NAME --api-key=$HEROKU_API_KEY
+  - curl https://cli-assets.heroku.com/install.sh | sh
+  - heroku run rails db:migrate --exit-code --app $APP_NAME
+  only :
+  - master
+
+# Dockerfile
+vi Dockerfile
+
+FROM ruby:2.5
+RUN apt-get update -qq && apt-get install -y build-essential libpq-dev nodejs
+RUN mkdir /myapp
+WORKDIR /myapp
+COPY Gemfile /myapp/Gemfile
+COPY Gemfile.lock /myapp/Gemfile.lock
+RUN bundle install
+COPY . /myapp
+
+# Gemfile
+vi Gemfile
+
+source 'https://rubygems.org'
+gem 'rails', '5.2.0'
+
+# Gemfile.lock
+touch Gemfile.lock
+
+# docker-compose.yml
+vi docker-compose.yml
+
+version: '3'
+services:
+  db:
+    image: postgres
+    volumes:
+      - ./tmp/db:/var/lib/postgresql/data
+  web:
+    build: .
+    command: bundle exec rails s -p 3000 -b '0.0.0.0'
+    volumes:
+      - .:/myapp
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+
+# Build project
+docker-compose run web rails new . --force --database=postgresql
+ls -la
+sudo chown -R $USER:$USER .
+
+#J> Screenshot output docker-compose run werb rails X-gl-adm-J.png
+
+# Rebuild Gemfile
+sudo docker-compose build
+
+# Ganti file config/database.yml
+vi config/database.yml
+
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  host: db
+  username: postgres
+  password:
+  pool: 5
+
+development:
+  <<: *default
+  database: myapp_development
+
+test:
+  <<: *default
+  database: myapp_test
+
+# Test database postgresql
+sudo docker-compose run web rake db:create
+
+### Jika mendapatkan pesan "error permision denied" ketika eksekusi "docker-compose run web rake db:create" 
+
+# sudo docker-compose up
+# Setelah itu jalankan lagi "docker-compose run web rake db:create"
+
+###
+
+# Test rails server 
+sudo docker-compose run web rails server
+curl localhost:[xxxx]
+
+#K> Screenshot hasil curl localhost:[xxxx] X-gl-adm-K.png
+
+### to stop rails server CTRL + C
+
+# Membuat views untuk tampilan
+docker-compose run web rails generate controller welcome index
+
+# Edir URL root
+vi config/routes.rb
+
+ ....
+  root 'welcome#index'
+
+# Cek hasil setelah melakukan perubahan
+curl localhost:[xxxx]
+
+#L> Screenshot hasil curl localhost:[xxxx] setelah mengubah file routers.rb X-gl-adm-L.png
+
+# Push ke GitLab
+git add .
+git commit -m 'initial commit'
+git push origin master
+
+# check CI/CD on gitlab, must be error
+
+# go to project setting CD/CD variables
+APP_NAME 
+HEROKU_API_KEY
+
+##run again pipline
+# buka browser untuk melihat hasil
+http://ruby-[USERNAME]-X.herokuapp.com
+
+#### Create Brach Baru ####
+## Membuat brach baru di repo yang sebelumnya
+
+#1. Membuat Brach Deployment
+git checkout -b Deployment
+
+#2. Edit file index.html
+vi app/views/welcome/index.html.erb
+
+<h1>Hello from</h1>
+<h2>[USERNAME]-X</h2>
+<p>Find me in app/views/welcome/index.html.erb</p>
+
+#3. Push ke GitLab
+git add .
+git commit -m "[USERNAME]-X - edit file index.html.erb"
+git push origin Deployment
+
+#### Buka https://gitlab.com/[username]/ruby-heroku/merge_requests
+# Create New merge request
+
+Source branch = Deployment - Target branch master
+
+# Submit merge request
+# Merge
+
+# buka browser untuk melihat hasil
+http://ruby-[USERNAME]-X.herokuapp.com
+
+#M> Screenshoot hasil akses http://ruby-[USERNAME]-X.herokuapp.com X-gl-adm-M.png
+
+##### Quiz #####
+1. Buat branch baru dengan nama projec-X dari branch Deployment kemudian tambahkan "<h3>Projec-X</h3>" di index.htm/erb setelah baris "</h2>".
+2. Dari branch projec-X push ke brach Deployment kemudian dari branch Deployment push ke brach master.
+
+#N> Verifikasi bahwa merge request dari projec-X ke Deployment, serta dari Deployment ke master sudah sesuai X-gl-adm-N.png
+#O> Verifikasi bahwa hasil di heroku sudah sesuai X-gl-adm-O.png

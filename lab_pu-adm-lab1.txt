@@ -1,0 +1,477 @@
+###########################
+###### Lab 1 - PU-ADM #####
+###########################
+
+###### Instruksi Environment Lab #####
+0. Saat ada X maka ubah ke nomor absen anda dan [USERNAME] menjadi username nolsatu anda
+1. Buat 4 instance (master, node1, websrv-u1, websrv-c1)
+2. Spesifikasi masing-masing Instance 2 vCPU dan 2 GB vRAM (ns.2-2-20) dengan image:
+   - master, node1, websrv-u1 : Ubuntu 16.04
+   - websrv-c1 : CentOS 7
+
+#>> Screenshot bagian Network Topology > Topology > Normal. Beri nama X-pu-adm-A.png
+#>> Screenshot bagian Compute > Instances. Beri nama X-pu-adm-B.png
+
+
+####### Eksekusi di Semua Node #######
+
+##### IP Addressing #####
+### Node master ###
+Interface: ens3
+IP Address: 10.X.X.100/24
+Gateway: 10.X.X.1
+Hostname: master
+
+### Node node1 ###
+Interface: ens3
+IP Address: 10.X.X.101/24
+Gateway: 10.X.X.1
+Hostname: node1
+
+### Node websrv-u1 ###
+Interface: ens3
+IP Address: 10.X.X.121/24
+Gateway: 10.X.X.1
+Hostname: websrv-u1
+
+### Node websrv-c1 ###
+Interface: eth0
+IP Address: 10.X.X.221/24
+Gateway: 10.X.X.1
+Hostname: websrv-c1
+
+##### Name Resolution #####
+vim /etc/hosts
+.....
+10.X.X.100 master
+10.X.X.101 node1
+10.X.X.121 websrv-u1
+10.X.X.221 websrv-c1
+
+# hati-hati dengan domain search di /etc/resolv.conf karena dapat menambahkan domain otomatis setelah hostname, hapus baris 'search' di resolv.conf jika ada.
+vim /etc/resolv.conf
+hapus baris 'search'
+
+##### Verifikasi Konektifitas #####
+ping -c 2 master
+ping -c 2 node1
+ping -c 2 websrv-u1
+ping -c 2 websrv-c1
+ping -c 2 google.com
+
+#>> Screenshot verifikasi konektifitas (cukup di instance master). Beri nama X-pu-adm-C.png
+
+####### Instalasi Puppet #######
+
+##### Puppet Master #####
+# Eksekusi di node master
+
+##1. Unduh dan install paket puppet server
+sudo su
+wget https://apt.puppetlabs.com/puppet6-release-xenial.deb
+dpkg -i puppet6-release-xenial.deb
+apt update
+apt-get install puppetserver -y
+
+##2. Disable firewall
+systemctl stop ufw
+systemctl disable ufw
+systemctl status ufw
+
+# Pastikan port 8140 terbuka di security group instance master
+
+##3. Adjust memory puppetserver
+
+# By default puppet server mengalokasikan 2GB memory, jika spesifikasi server lebih rendah dari itu maka perlu disesuaikan.
+# Dicontohkan alokasi memori diturunkan ke 512 MB
+vim /etc/default/puppetserver
+
+.....
+JAVA_ARGS="-Xms512m -Xmx512m"
+.....
+
+##3. Add puppet to PATH
+echo "export PATH=/opt/puppetlabs/bin:$PATH" >> ~/.bashrc
+
+##4. Start puppetserver service
+systemctl start puppetserver
+systemctl enable puppetserver
+systemctl status puppetserver
+
+
+#>> Tampilkan puppetserver version dan systemctl status dari puppet server. Screenshot beri nama X-pu-adm-D.png
+
+##### Puppet Agent #####
+# Eksekusi di node1 dan websrv-u1 (ubuntu)
+
+##1. Unduh dan install paket puppet agent
+sudo su
+wget https://apt.puppetlabs.com/puppet6-release-xenial.deb
+dpkg -i puppet6-release-xenial.deb
+apt update
+apt-get install puppet-agent
+
+##2. Set puppet master di konfigurasi puppet client
+# Tambahkan 'server = master' di konfigurasi puppet client. Ini menunjukkan host mana yang berperan sebagai puppet server
+vim /etc/puppetlabs/puppet/puppet.conf
+
+[main]
+.....
+server=master
+.....
+
+##3. Start puppet service
+systemctl enable puppet
+systemctl start puppet
+systemctl status puppet
+
+##4. Add puppet to PATH
+echo "export PATH=/opt/puppetlabs/bin:$PATH" >> ~/.bashrc
+
+##5. Pull catalog
+puppet agent --enable
+puppet agent -t
+
+# Eksekusi di websrv-c1 (CentOS)
+
+##1. Unduh dan install paket puppet agent
+sudo su
+rpm -Uvh https://yum.puppetlabs.com/puppet6/puppet6-release-el-7.noarch.rpm
+yum install -y epel-release
+yum update -y
+yum install -y puppet-agent
+
+##2. Set puppet master di konfigurasi puppet client
+vi /etc/puppetlabs/puppet/puppet.conf
+
+[main]
+.....
+server=master
+certname=websrv-c1
+.....
+
+##3. Start puppet service
+systemctl enable puppet
+systemctl start puppet
+systemctl status puppet
+
+##4. Add puppet to PATH
+echo "export PATH=/opt/puppetlabs/bin:$PATH" >> ~/.bashrc
+
+##5. Pull catalog
+puppet agent --enable
+puppet agent -t
+
+
+####### Signing Certificate #######
+# Certificate (dari node agent) yang belum disign belum bisa menerima update konfigurasi (catalog) dari master
+
+##1. Signing Certificate instance node1, websrv-u1, & websrv-c1
+# Eksekusi di node master
+puppetserver ca list -a
+puppetserver ca sign --certname <cert_name>
+puppetserver ca sign -a
+puppetserver ca list -a
+
+##2. Pull catalog
+# Eksekusi di node1, websrv-u1 dan websrv-c1
+puppet agent -t
+
+#>> Tampilkan list semua certificate di puppetserver. Screenshot beri nama X-pu-adm-E.png
+
+
+####### Puppet Manifest #######
+
+##### Info #####
+# File manifest utama letaknya di /etc/puppetlabs/code/environments/production/manifests
+# File modules letaknya di /etc/puppetlabs/code/environments/production/modules
+# Format manifest pada umumnya untuk suatu node:
+
+node [node_selector] {
+	[resource_type] { '[resource_name[s]]':
+		attribute1	=> value,
+		attribute2	=> value,
+		...
+	}
+}
+
+
+##### Test membuat file /root/test.txt ###
+
+##1. Edit file site.pp
+# Eksekusi di node master
+vim /etc/puppetlabs/code/environments/production/manifests/site.pp
+
+node 'default' {
+  file { '/root/test.txt':
+    ensure  => 'present',
+    content => 'testing...testing...testing'
+  }
+}
+
+##2.  Pull catalog
+# Eksekusi di node1, websrv-u1, dan websrv-c1
+puppet agent -t
+ls -l /root
+cat /root/test.txt
+
+
+##### Install Single/List of Packages #####
+
+##1. Edit file site.pp
+# Eksekusi di node master
+vim /etc/puppetlabs/code/environments/production/manifests/site.pp
+
+node 'default' {
+.....
+  package { 'curl':
+    ensure  => 'installed'
+  }
+
+  $text_editor = ['nano', 'vim']
+  package { $text_editor:
+    ensure  => 'installed'
+  }
+}
+
+##2. Pull catalog
+# Eksekusi di node1, websrv-u1, dan websrv-c1
+puppet agent -t
+nano --version
+vim --version
+curl https://www.nolsatu.id/
+
+
+####### Facter, Variables dan Condition statement #######
+# Facter digunakan untuk mencari informasi dari node. Terdapat pula pre-set variable facts yang dapat digunakan di dalam manifest
+# contoh penggunaan:
+# Menampilkan seluruh info dari node:
+facter
+
+# Menampilkan spesifik info, menggunakan grep
+facter | grep local-ipv4
+
+
+###### Menggunakan pre-set variable di manifest #####
+##1. Edit file site.pp
+# Eksekusi di node master
+vim /etc/puppetlabs/code/environments/production/manifests/site.pp
+
+node default {
+.....
+  file { '/root/facts.txt':
+    ensure  => 'present',
+    content => "${facts['hostname']} | ${facts['ipaddress']}"
+  }
+}
+
+##2. Pull catalog
+# Eksekusi di node1, websrv-u1, dan websrv-c1
+puppet agent -t
+cat /root/facts.txt
+
+
+##### Conditional statement di manifest #####
+# Conditional ini bisa mengggunakan if else atau switch case.
+
+##1. Edit file site.pp
+# Eksekusi di node master
+vim /etc/puppetlabs/code/environments/production/manifests/site.pp
+
+node default {
+.....
+  if( $facts['operatingsystem'] == 'Ubuntu' ){
+    file { '/root/ubuntu.txt':
+      ensure  => 'present',
+      content => "Ubuntu OS: ${facts['hostname']} | ${facts['ipaddress']}"
+    }
+
+    $packages = ['cowsay', 'fortune']
+    package { $packages:
+      ensure  => 'installed'
+    }
+  }else{
+    file { '/root/other.txt':
+      ensure  => 'present',
+      content => "Other OS: ${facts['hostname']} | ${facts['ipaddress']}"
+    }
+
+    $packages = ['htop', 'iftop']
+    package { $packages:
+      ensure  => 'installed'
+    }
+  }
+}
+
+##2. Pull catalog
+# Eksekusi di node1, websrv-u1, dan websrv-c1
+puppet agent -t
+
+# Cek Package di host Ubuntu (node1, websrv-u1) dan Centos (websrv-c1)
+htop --version
+iftop --version
+cowsay -f tux "Hi, I am [USERNAME]"
+fortune
+
+#>> Tampilkan pengecekan di node1, websrv-u1 dan websrv-c1. Screenshot beri nama X-pu-adm-F.png
+
+
+####### Node Selection and Matching #######
+# Hanya bisa match sama salah satu selector.
+# Satu node tidak bisa didefine ke beberapa selector.
+
+##### Specific Node Selector #####
+
+##1. Edit dan ganti isi site.pp menjadi berikut:
+# Eksekusi di node master
+vim /etc/puppetlabs/code/environments/production/manifests/site.pp
+
+# default node
+node default{
+  file { '/root/default-selector.txt':
+    ensure  => 'present',
+    content => 'default'
+  }
+}
+
+# single node
+node 'websrv-c1'{
+  file { '/root/single-selector.txt':
+    ensure  => 'present',
+    content => 'single'
+  }
+}
+
+# multiple node
+node 'node1', 'websrv-u1'{
+  file { '/root/multiple-selector.txt':
+    ensure  => 'present',
+    content => 'multiple'
+  }
+}
+
+# regex matching
+node /^websrv*/ {
+  file { '/root/regex-web.txt':
+    ensure  => 'present',
+    content => 'regex'
+  }
+}
+
+##2. Pull catalog
+# Eksekusi di node1, websrv-u1, dan websrv-c1
+puppet agent -t
+ls -l /root
+
+# perhatikan hasilnya, node default tidak akan terpakai dan tiap node hanya akan cocok dengan salah satu kondisi saja.
+
+
+##### Node matching using facts variables #####
+# Selection node berdasarkan variable dari facts
+
+##1. Edit dan ganti isi site.pp menjadi berikut
+# Eksekusi di node master
+vim /etc/puppetlabs/code/environments/production/manifests/site.pp
+
+node 'default' {
+	case $facts['hostname'] {
+	  'node1': { #match node1
+	    file { '/root/single_match.txt':
+	      ensure  => 'present',
+	      content => 'single'
+	    }
+	  }
+
+	  'node1', 'websrv-u1': { #match node1 dan websrv-u1
+	    file { '/root/multiple_match.txt':
+	      ensure  => 'present',
+	      content => 'multiple'
+	    }
+	  }
+
+	  /websrv*/: { #match regex websrv*
+	    file { '/root/regex_match.txt':
+	      ensure  => 'present',
+	      content => 'regex'
+	    }
+	  }
+
+	  default: { #default match
+	    file { '/root/default_match.txt':
+	      ensure  => 'present',
+	      content => 'default'
+	    }
+	  }
+	}
+}
+
+##2. Pull catalog di node1, websrv-u1, dan websrv-c1
+puppet agent -t
+ls -l /root
+
+# Perhatikan hasilnya, config berdasarkan hostname, akan match dengan salah satu statement switch case, jika tidak ada yang cocok maka akan menggunakan switch case default.
+# Selain menggunakan switch case, bisa juga menggunakan if-else.
+
+
+##### Puppet Agent Run Interval #####
+# By default puppet agent pull catalog setiap 30 menit (1800 detik) sekali. Settingan ini dapat dirubah.
+
+# Cek runinterval di puppet agent (node1, websrv-u1, websrv-c1)
+puppet agent --configprint runinterval
+
+# Test ganti runinterval agent (node1, websrv-u1, websrv-c1)
+vim /etc/puppetlabs/puppet/puppet.conf
+...
+runinterval=2m
+...
+
+systemctl restart puppet.service
+puppet agent --configprint runinterval
+
+# 120 = 2m (2 minutes)
+# setiap 2 menit sekali agent akan pull catalog
+# dapat dicoba dengan melakukan perubahan catalog (site.pp) dan tunggu selama 2 menit maka di agent akan otomatis apply update catalon tersebut (tidak menunggu lama hingga 30 menit seperti konfig defaultnya)
+
+# kembalikan settingan ke nilai semula (1800)
+
+
+####### Puppet Modules #######
+
+# Install Packages dengan module puppetlabs
+# Module ini sebenarnya adalah suatu paket lengkap manifest yang khusus untuk melakukan sesuatu, contohnya ada module apache yang digunakan untuk deploy apache beserta konfigurasinya.
+# List module dapat diakses di: https://forgeapi.puppetlabs.com
+# Format penamaan module di forgeapi.puppetlabs.com adalah [username]-[modulename]
+# dicontohkan install web server apache di websrv-u1
+
+##1.  Install puppet module apache
+# Eksekusi di node master
+puppet module install puppetlabs-apache
+
+##2. Edit dan ganti isi file site.php menjadi berikut
+vim /etc/puppetlabs/code/environments/production/manifests/site.pp
+
+node 'node1' {
+  class { 'apache': }
+  apache::vhost { 'localhost':
+    port    => '80',
+    docroot => '/var/www/html'
+  }
+}
+
+##2. Pull catalog
+Eksekusi di node1
+puppet agent -t
+
+##3. Cek hasil
+# ssh tunnel ke lab1.nolsatu.id
+# Akses http://[node1] dari browser dan pastikan apache telah terinstall
+
+#>> Screenshot hasil test browsing. Beri nama X-pu-adm-G.png
+
+
+##### Quiz Lab 1 #####
+1. Ganti hostname node1 menjadi testsrv1.
+2. Pastikan node testsrv1 dapat menerima update catalog dari puppet master
+3. Silahkan dicoba dengan melakukan mencoba edit file manifest (site.pp) dan pull catalog dari agent (testsrv1).
+
+#>> Screenshot list semua certificate di master dan tuliskan langkah-langkah yang dilakukan di terminal. Beri nama X-pu-adm-H.png
